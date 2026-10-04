@@ -5,93 +5,77 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandStart
 
-# ==============================================================================
-# ⚠️ ОБЯЗАТЕЛЬНО УКАЖИ СВОИ ДАННЫЕ ЗДЕСЬ:
-# ==============================================================================
+# ================= НАСТРОЙКИ =================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8906681827:AAH5j1XXcDP_3xcNNPqK98D3XALcMHMpsPE")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "1827818074"))  # Твой Telegram ID
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "7314968751"))
 PORT = int(os.environ.get("PORT", 8080))
-# ==============================================================================
+# =============================================
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Настройки работы бота
 bot_settings = {
-    "is_active": True,           # Включен ли бот вообще
-    "delete_mode": "all",        # "all" - удалять все, "only_me" - только мои
-    "delay_seconds": 1800        # По умолчанию 30 минут (1800 секунд)
+    "is_active": True,
+    "delete_mode": "all",
+    "delay_seconds": 15        # Для теста поставим 15 секунд
 }
 
-
-# Генерация кнопок меню управления
 def get_control_keyboard():
-    status_btn = "🟢 Работает (Поставить на паузу)" if bot_settings["is_active"] else "🔴 НА ПАУЗЕ (Включить)"
+    status_btn = "🟢 Работает (Пауза)" if bot_settings["is_active"] else "🔴 НА ПАУЗЕ (Включить)"
+    mode_btn = "🔄 Режим: ВСЕ" if bot_settings["delete_mode"] == "all" else "👤 Режим: ТОЛЬКО МОИ"
     
-    if bot_settings["delete_mode"] == "all":
-        mode_btn = "🔄 Режим: ВСЕ сообщения"
-    else:
-        mode_btn = "👤 Режим: ТОЛЬКО МОИ"
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=status_btn, callback_data="toggle_active")],
         [InlineKeyboardButton(text=mode_btn, callback_data="toggle_mode")],
         [
-            InlineKeyboardButton(text="⏱ 5 мин", callback_data="time_5"),
-            InlineKeyboardButton(text="⏱ 15 мин", callback_data="time_15"),
-            InlineKeyboardButton(text="⏱ 30 мин", callback_data="time_30"),
-            InlineKeyboardButton(text="⏱ 1 час", callback_data="time_60")
+            InlineKeyboardButton(text="⏱ 10 сек", callback_data="time_10s"),
+            InlineKeyboardButton(text="⏱ 1 мин", callback_data="time_1m"),
+            InlineKeyboardButton(text="⏱ 15 мин", callback_data="time_15m"),
+            InlineKeyboardButton(text="⏱ 30 мин", callback_data="time_30m")
         ],
         [InlineKeyboardButton(text="🔄 Обновить статус", callback_data="refresh_menu")]
     ])
-    return kb
-
 
 def get_status_text():
     status = "🟢 <b>АКТИВЕН</b>" if bot_settings["is_active"] else "🔴 <b>НА ПАУЗЕ</b>"
-    mode = "Удалять <b>ВСЕ</b> (мои и собеседника)" if bot_settings["delete_mode"] == "all" else "Удалять <b>ТОЛЬКО МОИ</b> сообщения"
-    mins = bot_settings["delay_seconds"] // 60
+    mode = "Удалять <b>ВСЕ</b> сообщения" if bot_settings["delete_mode"] == "all" else "Удалять <b>ТОЛЬКО МОИ</b>"
+    sec = bot_settings["delay_seconds"]
+    time_str = f"{sec // 60} мин." if sec >= 60 else f"{sec} сек."
 
     return (
-        f"⚙️ <b>Панель управления Telegram Business Cleaner:</b>\n\n"
-        f"• Статус бота: {status}\n"
-        f"• Режим очистки: {mode}\n"
-        f"• Время жизни сообщений: <b>{mins} мин.</b>\n\n"
-        f"<i>Нажимай на кнопки ниже для настройки:</i>"
+        f"⚙️ <b>Telegram Business Cleaner:</b>\n\n"
+        f"• Статус: {status}\n"
+        f"• Режим: {mode}\n"
+        f"• Таймер: <b>{time_str}</b>\n\n"
+        f"<i>Команда для быстрой смены таймера: <code>/timer 10s</code></i>"
     )
 
-
-# Фоновая задача на удаление конкретного сообщения
 async def schedule_delete(chat_id: int, message_id: int, delay: int):
+    print(f"[ЛОГ] Сообщение {message_id} запланировано к удалению через {delay} сек.")
     await asyncio.sleep(delay)
-
-    # Если во время ожидания бота выключили — отменяем удаление
+    
     if not bot_settings["is_active"]:
+        print(f"[ЛОГ] Удаление отменено: бот на паузе.")
         return
 
     try:
         await bot.delete_message(chat_id=chat_id, message_id=message_id)
-    except Exception:
-        pass
+        print(f"[УСПЕХ] Сообщение {message_id} успешно удалено!")
+    except Exception as e:
+        print(f"[ОШИБКА] Не удалось удалить сообщение {message_id}: {e}")
 
-
-# ==============================================================================
-# ОБРАБОТКА СООБЩЕНИЙ В ЛИЧНЫХ ЧАТАХ (TELEGRAM BUSINESS)
-# ==============================================================================
+# Перехват сообщений в личных чатах
 @dp.business_message()
 async def on_business_message(message: Message):
-    # Если бот выключен — ничего не делаем
+    print(f"[ЛОГ] Получено новое бизнес-сообщение от user_id={message.from_user.id}")
+
     if not bot_settings["is_active"]:
         return
 
-    # Проверяем, кто отправил сообщение
-    is_my_message = (message.from_user.id == ADMIN_ID)
-
-    # Если включен режим "ТОЛЬКО МОИ", а пишет собеседник — пропускаем
-    if bot_settings["delete_mode"] == "only_me" and not is_my_message:
+    is_my_msg = (message.from_user.id == ADMIN_ID)
+    if bot_settings["delete_mode"] == "only_me" and not is_my_msg:
         return
 
-    # Отправляем сообщение в очередь на удаление
     asyncio.create_task(
         schedule_delete(
             chat_id=message.chat.id,
@@ -100,94 +84,62 @@ async def on_business_message(message: Message):
         )
     )
 
-
-# ==============================================================================
-# УПРАВЛЕНИЕ БОТОМ (КНОПКИ И КОМАНДЫ)
-# ==============================================================================
+# Управление в личке с ботом
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     if message.from_user.id != ADMIN_ID:
-        await message.answer("👋 Это приватный бот автоудаления для Telegram Business.")
         return
+    await message.answer(get_status_text(), reply_markup=get_control_keyboard(), parse_mode="HTML")
 
-    await message.answer(
-        get_status_text(),
-        reply_markup=get_control_keyboard(),
-        parse_mode="HTML"
-    )
-
-
-# Включение / Выключение паузы по кнопке
 @dp.callback_query(F.data == "toggle_active")
 async def cb_toggle_active(call: CallbackQuery):
-    if call.from_user.id != ADMIN_ID:
-        return await call.answer("Доступ запрещен!", show_alert=True)
-
+    if call.from_user.id != ADMIN_ID: return
     bot_settings["is_active"] = not bot_settings["is_active"]
-    await call.answer("Статус изменен!")
+    await call.answer()
     await call.message.edit_text(get_status_text(), reply_markup=get_control_keyboard(), parse_mode="HTML")
 
-
-# Переключение режима (Все сообщения <-> Только мои)
 @dp.callback_query(F.data == "toggle_mode")
 async def cb_toggle_mode(call: CallbackQuery):
-    if call.from_user.id != ADMIN_ID:
-        return await call.answer("Доступ запрещен!", show_alert=True)
-
-    if bot_settings["delete_mode"] == "all":
-        bot_settings["delete_mode"] = "only_me"
-        await call.answer("Теперь удаляются ТОЛЬКО ТВОИ сообщения!")
-    else:
-        bot_settings["delete_mode"] = "all"
-        await call.answer("Теперь удаляются ВСЕ сообщения в диалоге!")
-
+    if call.from_user.id != ADMIN_ID: return
+    bot_settings["delete_mode"] = "only_me" if bot_settings["delete_mode"] == "all" else "all"
+    await call.answer()
     await call.message.edit_text(get_status_text(), reply_markup=get_control_keyboard(), parse_mode="HTML")
 
-
-# Выбор времени по кнопкам
 @dp.callback_query(F.data.startswith("time_"))
 async def cb_set_time(call: CallbackQuery):
-    if call.from_user.id != ADMIN_ID:
-        return await call.answer("Доступ запрещен!", show_alert=True)
-
-    mins = int(call.data.split("_")[1])
-    bot_settings["delay_seconds"] = mins * 60
-    await call.answer(f"Таймер установлен на {mins} мин.")
+    if call.from_user.id != ADMIN_ID: return
+    val = call.data.split("_")[1]
+    if val == "10s": bot_settings["delay_seconds"] = 10
+    elif val == "1m": bot_settings["delay_seconds"] = 60
+    elif val == "15m": bot_settings["delay_seconds"] = 900
+    elif val == "30m": bot_settings["delay_seconds"] = 1800
+    await call.answer("Время обновлено!")
     await call.message.edit_text(get_status_text(), reply_markup=get_control_keyboard(), parse_mode="HTML")
 
-
-# Обновить меню
 @dp.callback_query(F.data == "refresh_menu")
 async def cb_refresh(call: CallbackQuery):
-    await call.answer("Обновлено!")
+    await call.answer("Обновлено")
     await call.message.edit_text(get_status_text(), reply_markup=get_control_keyboard(), parse_mode="HTML")
 
-
-# Ручная команда для любого времени (например, /timer 45)
 @dp.message(Command("timer"))
 async def cmd_timer(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-
+    if message.from_user.id != ADMIN_ID: return
     parts = message.text.split()
-    if len(parts) < 2 or not parts[1].isdigit():
-        await message.answer("⚠️ Формат: <code>/timer 20</code> (укажи число минут)", parse_mode="HTML")
-        return
+    if len(parts) < 2: return
+    arg = parts[1].lower()
+    
+    if arg.endswith("s"):
+        bot_settings["delay_seconds"] = int(arg[:-1])
+    elif arg.endswith("m"):
+        bot_settings["delay_seconds"] = int(arg[:-1]) * 60
+    elif arg.isdigit():
+        bot_settings["delay_seconds"] = int(arg) * 60
 
-    mins = int(parts[1])
-    if mins <= 0:
-        await message.answer("⚠️ Число должно быть больше 0 минут!")
-        return
+    await message.answer(f"⏱ Таймер установлен: <b>{bot_settings['delay_seconds']} сек.</b>", parse_mode="HTML")
 
-    bot_settings["delay_seconds"] = mins * 60
-    await message.answer(f"⏱ <b>Установлен таймер: {mins} мин.!</b>", parse_mode="HTML")
-
-
-# ==============================================================================
-# ВЕБ-СЕРВЕР ДЛЯ НЕПРЕРЫВНОЙ РАБОТЫ (RENDER + UPTIMEROBOT 24/7)
-# ==============================================================================
+# Сервер для Render
 async def handle_ping(request):
-    return web.Response(text="Telegram Business Cleaner Bot is Online 24/7!", status=200)
+    return web.Response(text="OK", status=200)
 
 async def start_webserver():
     app = web.Application()
@@ -198,13 +150,20 @@ async def start_webserver():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
-
-# Точка входа
 async def main():
-    print(f">>> Запуск встроенного веб-сервера на порту {PORT}...")
     await start_webserver()
-    print(">>> Бот запущен и готов к работе в Telegram Business!")
-    await dp.start_polling(bot)
+    print(">>> Запуск бота с подпиской на business_message...")
+    # ВОТ ЗДЕСЬ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
+    await dp.start_polling(
+        bot,
+        allowed_updates=[
+            "message", 
+            "business_message", 
+            "edited_business_message", 
+            "business_connection", 
+            "callback_query"
+        ]
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
