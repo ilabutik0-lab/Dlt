@@ -1,5 +1,6 @@
 import os
 import asyncio
+import aiohttp
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -58,13 +59,21 @@ async def schedule_delete(chat_id: int, message_id: int, delay: int, business_co
         print("[ЛОГ] Удаление отменено: бот на паузе.", flush=True)
         return
 
+    # Прямой запрос к Telegram API (обход ограничений aiogram)
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "business_connection_id": business_connection_id
+    }
     try:
-        await bot.delete_message(
-            chat_id=chat_id,
-            message_id=message_id,
-            business_connection_id=business_connection_id
-        )
-        print(f"[УСПЕХ] Сообщение {message_id} успешно удалено!", flush=True)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as resp:
+                result = await resp.json()
+                if result.get("ok"):
+                    print(f"[УСПЕХ] Сообщение {message_id} успешно удалено!", flush=True)
+                else:
+                    print(f"[ОШИБКА] Telegram вернул: {result}", flush=True)
     except Exception as e:
         print(f"[ОШИБКА] Не удалось удалить сообщение {message_id}: {e}", flush=True)
 
@@ -165,7 +174,7 @@ async def cmd_timer(message: Message):
 
     await message.answer(f"⏱ Таймер установлен: <b>{bot_settings['delay_seconds']} сек.</b>", parse_mode="HTML")
 
-# ============ ВЕБ-СЕРВЕР (для Render) ============
+# ============ ВЕБ-СЕРВЕР ============
 async def handle_ping(request):
     return web.Response(text="OK", status=200)
 
@@ -184,7 +193,6 @@ async def main():
     print("[BOOT] Bot is starting...", flush=True)
     print(f"[BOOT] PORT={PORT}", flush=True)
 
-    # Запускаем веб-сервер и polling параллельно
     await asyncio.gather(
         start_webserver(),
         dp.start_polling(
