@@ -68,15 +68,31 @@ async def schedule_delete(chat_id: int, message_id: int, delay: int, business_co
     except Exception as e:
         print(f"[ОШИБКА] Не удалось удалить сообщение {message_id}: {e}")
 
+# ============ ОТЛАДКА ============
+@dp.update()
+async def debug_updates(update):
+    try:
+        conn = getattr(update, 'business_connection_id', None)
+        print(f"[DEBUG] type={update.event_type} | conn={conn}")
+    except Exception as e:
+        print(f"[DEBUG] ошибка вывода: {e}")
+
+@dp.business_connection()
+async def on_conn(connection):
+    print(f"[CONN] id={connection.id} user={connection.user.id} can_reply={connection.can_reply} rights={connection.rights}")
+
+# ============ ОСНОВНАЯ ЛОГИКА ============
 @dp.business_message()
 async def on_business_message(message: Message):
     print(f"[ЛОГ] Получено бизнес-сообщение от user_id={message.from_user.id}, conn={message.business_connection_id}")
 
     if not bot_settings["is_active"]:
+        print("[ЛОГ] Бот на паузе, пропускаем.")
         return
 
     is_my_msg = (message.from_user.id == ADMIN_ID)
     if bot_settings["delete_mode"] == "only_me" and not is_my_msg:
+        print("[ЛОГ] Режим 'только мои', сообщение не наше — пропуск.")
         return
 
     asyncio.create_task(
@@ -163,9 +179,11 @@ async def start_webserver():
 
 async def main():
     await start_webserver()
+    await bot.delete_webhook(drop_pending_updates=True)
     print(">>> Запуск бота с подпиской на business_message...")
     await dp.start_polling(
         bot,
+        drop_pending_updates=True,
         allowed_updates=[
             "message",
             "business_message",
