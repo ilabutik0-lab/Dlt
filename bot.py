@@ -17,13 +17,13 @@ dp = Dispatcher()
 bot_settings = {
     "is_active": True,
     "delete_mode": "all",
-    "delay_seconds": 15        # Для теста поставим 15 секунд
+    "delay_seconds": 15
 }
 
 def get_control_keyboard():
     status_btn = "🟢 Работает (Пауза)" if bot_settings["is_active"] else "🔴 НА ПАУЗЕ (Включить)"
     mode_btn = "🔄 Режим: ВСЕ" if bot_settings["delete_mode"] == "all" else "👤 Режим: ТОЛЬКО МОИ"
-    
+
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=status_btn, callback_data="toggle_active")],
         [InlineKeyboardButton(text=mode_btn, callback_data="toggle_mode")],
@@ -50,24 +50,27 @@ def get_status_text():
         f"<i>Команда для быстрой смены таймера: <code>/timer 10s</code></i>"
     )
 
-async def schedule_delete(chat_id: int, message_id: int, delay: int):
-    print(f"[ЛОГ] Сообщение {message_id} запланировано к удалению через {delay} сек.")
+async def schedule_delete(chat_id: int, message_id: int, delay: int, business_connection_id: str):
+    print(f"[ЛОГ] Сообщение {message_id} запланировано к удалению через {delay} сек. (conn={business_connection_id})")
     await asyncio.sleep(delay)
-    
+
     if not bot_settings["is_active"]:
         print(f"[ЛОГ] Удаление отменено: бот на паузе.")
         return
 
     try:
-        await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        await bot.delete_message(
+            chat_id=chat_id,
+            message_id=message_id,
+            business_connection_id=business_connection_id
+        )
         print(f"[УСПЕХ] Сообщение {message_id} успешно удалено!")
     except Exception as e:
         print(f"[ОШИБКА] Не удалось удалить сообщение {message_id}: {e}")
 
-# Перехват сообщений в личных чатах
 @dp.business_message()
 async def on_business_message(message: Message):
-    print(f"[ЛОГ] Получено новое бизнес-сообщение от user_id={message.from_user.id}")
+    print(f"[ЛОГ] Получено бизнес-сообщение от user_id={message.from_user.id}, conn={message.business_connection_id}")
 
     if not bot_settings["is_active"]:
         return
@@ -80,11 +83,11 @@ async def on_business_message(message: Message):
         schedule_delete(
             chat_id=message.chat.id,
             message_id=message.message_id,
-            delay=bot_settings["delay_seconds"]
+            delay=bot_settings["delay_seconds"],
+            business_connection_id=message.business_connection_id
         )
     )
 
-# Управление в личке с ботом
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -93,26 +96,33 @@ async def cmd_start(message: Message):
 
 @dp.callback_query(F.data == "toggle_active")
 async def cb_toggle_active(call: CallbackQuery):
-    if call.from_user.id != ADMIN_ID: return
+    if call.from_user.id != ADMIN_ID:
+        return
     bot_settings["is_active"] = not bot_settings["is_active"]
     await call.answer()
     await call.message.edit_text(get_status_text(), reply_markup=get_control_keyboard(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "toggle_mode")
 async def cb_toggle_mode(call: CallbackQuery):
-    if call.from_user.id != ADMIN_ID: return
+    if call.from_user.id != ADMIN_ID:
+        return
     bot_settings["delete_mode"] = "only_me" if bot_settings["delete_mode"] == "all" else "all"
     await call.answer()
     await call.message.edit_text(get_status_text(), reply_markup=get_control_keyboard(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("time_"))
 async def cb_set_time(call: CallbackQuery):
-    if call.from_user.id != ADMIN_ID: return
+    if call.from_user.id != ADMIN_ID:
+        return
     val = call.data.split("_")[1]
-    if val == "10s": bot_settings["delay_seconds"] = 10
-    elif val == "1m": bot_settings["delay_seconds"] = 60
-    elif val == "15m": bot_settings["delay_seconds"] = 900
-    elif val == "30m": bot_settings["delay_seconds"] = 1800
+    if val == "10s":
+        bot_settings["delay_seconds"] = 10
+    elif val == "1m":
+        bot_settings["delay_seconds"] = 60
+    elif val == "15m":
+        bot_settings["delay_seconds"] = 900
+    elif val == "30m":
+        bot_settings["delay_seconds"] = 1800
     await call.answer("Время обновлено!")
     await call.message.edit_text(get_status_text(), reply_markup=get_control_keyboard(), parse_mode="HTML")
 
@@ -123,11 +133,13 @@ async def cb_refresh(call: CallbackQuery):
 
 @dp.message(Command("timer"))
 async def cmd_timer(message: Message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return
     parts = message.text.split()
-    if len(parts) < 2: return
+    if len(parts) < 2:
+        return
     arg = parts[1].lower()
-    
+
     if arg.endswith("s"):
         bot_settings["delay_seconds"] = int(arg[:-1])
     elif arg.endswith("m"):
@@ -137,7 +149,6 @@ async def cmd_timer(message: Message):
 
     await message.answer(f"⏱ Таймер установлен: <b>{bot_settings['delay_seconds']} сек.</b>", parse_mode="HTML")
 
-# Сервер для Render
 async def handle_ping(request):
     return web.Response(text="OK", status=200)
 
@@ -153,14 +164,13 @@ async def start_webserver():
 async def main():
     await start_webserver()
     print(">>> Запуск бота с подпиской на business_message...")
-    # ВОТ ЗДЕСЬ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ:
     await dp.start_polling(
         bot,
         allowed_updates=[
-            "message", 
-            "business_message", 
-            "edited_business_message", 
-            "business_connection", 
+            "message",
+            "business_message",
+            "edited_business_message",
+            "business_connection",
             "callback_query"
         ]
     )
