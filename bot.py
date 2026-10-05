@@ -8,7 +8,7 @@ from aiogram.filters import Command, CommandStart
 # ================= НАСТРОЙКИ =================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8906681827:AAH5j1XXcDP_3xcNNPqK98D3XALcMHMpsPE")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "7314968751"))
-PORT = int(os.environ.get("PORT", 8080))
+PORT = int(os.environ.get("PORT", 10000))
 # =============================================
 
 bot = Bot(token=BOT_TOKEN)
@@ -51,11 +51,11 @@ def get_status_text():
     )
 
 async def schedule_delete(chat_id: int, message_id: int, delay: int, business_connection_id: str):
-    print(f"[ЛОГ] Сообщение {message_id} запланировано к удалению через {delay} сек. (conn={business_connection_id})")
+    print(f"[ЛОГ] Сообщение {message_id} запланировано к удалению через {delay} сек. (conn={business_connection_id})", flush=True)
     await asyncio.sleep(delay)
 
     if not bot_settings["is_active"]:
-        print(f"[ЛОГ] Удаление отменено: бот на паузе.")
+        print("[ЛОГ] Удаление отменено: бот на паузе.", flush=True)
         return
 
     try:
@@ -64,35 +64,35 @@ async def schedule_delete(chat_id: int, message_id: int, delay: int, business_co
             message_id=message_id,
             business_connection_id=business_connection_id
         )
-        print(f"[УСПЕХ] Сообщение {message_id} успешно удалено!")
+        print(f"[УСПЕХ] Сообщение {message_id} успешно удалено!", flush=True)
     except Exception as e:
-        print(f"[ОШИБКА] Не удалось удалить сообщение {message_id}: {e}")
+        print(f"[ОШИБКА] Не удалось удалить сообщение {message_id}: {e}", flush=True)
 
 # ============ ОТЛАДКА ============
 @dp.update()
 async def debug_updates(update):
     try:
         conn = getattr(update, 'business_connection_id', None)
-        print(f"[DEBUG] type={update.event_type} | conn={conn}")
+        print(f"[DEBUG] type={update.event_type} | conn={conn}", flush=True)
     except Exception as e:
-        print(f"[DEBUG] ошибка вывода: {e}")
+        print(f"[DEBUG] ошибка вывода: {e}", flush=True)
 
 @dp.business_connection()
 async def on_conn(connection):
-    print(f"[CONN] id={connection.id} user={connection.user.id} can_reply={connection.can_reply} rights={connection.rights}")
+    print(f"[CONN] id={connection.id} user={connection.user.id} can_reply={connection.can_reply}", flush=True)
 
 # ============ ОСНОВНАЯ ЛОГИКА ============
 @dp.business_message()
 async def on_business_message(message: Message):
-    print(f"[ЛОГ] Получено бизнес-сообщение от user_id={message.from_user.id}, conn={message.business_connection_id}")
+    print(f"[ЛОГ] Получено бизнес-сообщение от user_id={message.from_user.id}, conn={message.business_connection_id}", flush=True)
 
     if not bot_settings["is_active"]:
-        print("[ЛОГ] Бот на паузе, пропускаем.")
+        print("[ЛОГ] Бот на паузе, пропускаем.", flush=True)
         return
 
     is_my_msg = (message.from_user.id == ADMIN_ID)
     if bot_settings["delete_mode"] == "only_me" and not is_my_msg:
-        print("[ЛОГ] Режим 'только мои', сообщение не наше — пропуск.")
+        print("[ЛОГ] Режим 'только мои', сообщение не наше — пропуск.", flush=True)
         return
 
     asyncio.create_task(
@@ -165,6 +165,7 @@ async def cmd_timer(message: Message):
 
     await message.answer(f"⏱ Таймер установлен: <b>{bot_settings['delay_seconds']} сек.</b>", parse_mode="HTML")
 
+# ============ ВЕБ-СЕРВЕР (для Render) ============
 async def handle_ping(request):
     return web.Response(text="OK", status=200)
 
@@ -176,21 +177,27 @@ async def start_webserver():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
+    print(f"[BOOT] Web server started on port {PORT}", flush=True)
 
+# ============ ГЛАВНАЯ ============
 async def main():
-    await start_webserver()
-    await bot.delete_webhook(drop_pending_updates=True)
-    print(">>> Запуск бота с подпиской на business_message...")
-    await dp.start_polling(
-        bot,
-        drop_pending_updates=True,
-        allowed_updates=[
-            "message",
-            "business_message",
-            "edited_business_message",
-            "business_connection",
-            "callback_query"
-        ]
+    print("[BOOT] Bot is starting...", flush=True)
+    print(f"[BOOT] PORT={PORT}", flush=True)
+
+    # Запускаем веб-сервер и polling параллельно
+    await asyncio.gather(
+        start_webserver(),
+        dp.start_polling(
+            bot,
+            drop_pending_updates=True,
+            allowed_updates=[
+                "message",
+                "business_message",
+                "edited_business_message",
+                "business_connection",
+                "callback_query"
+            ]
+        )
     )
 
 if __name__ == "__main__":
